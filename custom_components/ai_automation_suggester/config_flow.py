@@ -39,6 +39,9 @@ from .const import (
     # Mistral AI additions:
     CONF_MISTRAL_API_KEY,
     CONF_MISTRAL_MODEL,
+    # Qwen (Alibaba Cloud) additions:
+    CONF_QWEN_API_KEY,
+    CONF_QWEN_MODEL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -209,6 +212,35 @@ class ProviderValidator:
             _LOGGER.error(f"Custom OpenAI validation exception: {err}")
             return str(err)
 
+    async def validate_qwen(self, api_key: str, model: str) -> Optional[str]:
+        headers = {
+            'Authorization': f"Bearer {api_key}",
+            'Content-Type': 'application/json',
+        }
+        url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+        payload = {
+            "model": model,
+            "input": {"prompt": "Hello"},
+            "parameters": {"result_format": "message"}
+        }
+        try:
+            _LOGGER.debug("Validating Qwen API key and model")
+            response = await self.session.post(url, headers=headers, json=payload)
+            if response.status == 200:
+                return None  # Success
+            else:
+                error_text = await response.text()
+                _LOGGER.error(f"Qwen validation error response: {error_text}")
+                try:
+                    error_json = await response.json()
+                    error_message = error_json.get("code", error_text)
+                except Exception:
+                    error_message = error_text
+                return error_message
+        except Exception as err:
+            _LOGGER.error(f"Qwen validation exception: {err}")
+            return str(err)
+
 
 class AIAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for AI Automation Suggester integration."""
@@ -247,9 +279,13 @@ class AIAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Ollama": self.async_step_ollama,
                     "Custom OpenAI": self.async_step_custom_openai,
                     "Mistral AI": self.async_step_mistral,
+                    "Qwen": self.async_step_qwen,  # Add Qwen here
                 }
                 return await provider_steps[self.provider]()
-        providers = ["OpenAI", "Anthropic", "Google", "Groq", "LocalAI", "Ollama", "Custom OpenAI", "Mistral AI"]
+        providers = [
+            "OpenAI", "Anthropic", "Google", "Groq", "LocalAI", "Ollama",
+            "Custom OpenAI", "Mistral AI", "Qwen"
+        ]
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({vol.Required(CONF_PROVIDER): vol.In(providers)}),
@@ -457,6 +493,31 @@ class AIAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
+    async def async_step_qwen(self, user_input: Optional[Dict[str, Any]] = None):
+        errors = {}
+        description_placeholders = {}
+        if user_input is not None:
+            self.validator = ProviderValidator(self.hass)
+            model = user_input.get(CONF_QWEN_MODEL, DEFAULT_MODELS.get("Qwen", "qwen-turbo"))
+            error_message = await self.validator.validate_qwen(api_key=user_input[CONF_QWEN_API_KEY], model=model)
+            if error_message is None:
+                self.data.update(user_input)
+                return self.async_create_entry(title="AI Automation Suggester (Qwen)", data=self.data)
+            else:
+                errors["base"] = "api_error"
+                description_placeholders["error_message"] = error_message
+        return self.async_show_form(
+            step_id="qwen",
+            data_schema=vol.Schema({
+                vol.Required(CONF_QWEN_API_KEY): str,
+                vol.Optional(CONF_QWEN_MODEL, default=DEFAULT_MODELS.get("Qwen", "qwen-turbo")): str,
+                vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS):
+                    vol.All(vol.Coerce(int), vol.Range(min=100)),
+            }),
+            errors=errors,
+            description_placeholders=description_placeholders
+        )
+
 
 class AIAutomationOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options for the AI Automation Suggester."""
@@ -496,6 +557,9 @@ class AIAutomationOptionsFlowHandler(config_entries.OptionsFlow):
         elif provider == "Mistral AI":
             options[vol.Required(CONF_MISTRAL_API_KEY)] = str
             options[vol.Required(CONF_MISTRAL_MODEL, default=self.config_entry.data.get(CONF_MISTRAL_MODEL, "mistral-large-latest"))] = str
+        elif provider == "Qwen":
+            options[vol.Required(CONF_QWEN_API_KEY)] = str
+            options[vol.Optional(CONF_QWEN_MODEL, default=self.config_entry.data.get(CONF_QWEN_MODEL, DEFAULT_MODELS.get("Qwen", "qwen-turbo")))] = str
 
         return self.async_show_form(
             step_id="init",

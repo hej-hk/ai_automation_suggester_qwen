@@ -50,6 +50,10 @@ CONF_MISTRAL_API_KEY = "mistral_api_key"
 CONF_MISTRAL_MODEL = "mistral_model"
 MISTRAL_MODELS = ["mistral-tiny", "mistral-small", "mistral-medium", "mistral-large"]
 
+# Qwen (Alibaba Cloud) specific
+CONF_QWEN_API_KEY = "qwen_api_key"
+CONF_QWEN_MODEL = "qwen_model"
+
 # Model Defaults
 DEFAULT_MODELS = {
     "OpenAI": "gpt-4o-mini",
@@ -59,7 +63,8 @@ DEFAULT_MODELS = {
     "LocalAI": "llama3",
     "Ollama": "llama2",
     "Custom OpenAI": "gpt-3.5-turbo",
-    "Mistral AI": "mistral-medium"
+    "Mistral AI": "mistral-medium",
+    "Qwen": "qwen-turbo"
 }
 
 # Error Messages
