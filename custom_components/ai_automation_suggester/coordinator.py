@@ -37,6 +37,9 @@ from .const import (
     # Mistral AI constants added:
     CONF_MISTRAL_API_KEY,
     CONF_MISTRAL_MODEL,
+    # Qwen AI constants:
+    CONF_QWEN_API_KEY,
+    CONF_QWEN_MODEL,
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
     VERSION_ANTHROPIC,
@@ -46,7 +49,6 @@ from .const import (
     ENDPOINT_GROQ,
     ENDPOINT_LOCALAI,
     ENDPOINT_OLLAMA,
-    # New Mistral AI endpoint constant:
     ENDPOINT_MISTRAL,
 )
 
@@ -333,6 +335,8 @@ class AIAutomationCoordinator(DataUpdateCoordinator):
                 return await self.process_with_custom_openai(prompt)
             elif provider == "Mistral AI":
                 return await self.process_with_mistral(prompt)
+            elif provider == "Qwen":
+                return await self.process_with_qwen(prompt)
             else:
                 _LOGGER.error("Unknown provider: %s", provider)
                 return None
@@ -682,3 +686,48 @@ class AIAutomationCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error("Error calling Mistral AI API: %s", str(e))
             return f"Error: {str(e)}"
+
+    async def process_with_qwen(self, prompt):
+        try:
+            api_key = self.entry.data.get(CONF_QWEN_API_KEY)
+            model = self.entry.data.get(CONF_QWEN_MODEL, DEFAULT_MODELS.get("Qwen", "qwen-turbo"))
+            max_tokens = self.entry.data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
+
+            if not api_key:
+                raise ValueError("Qwen API key not configured")
+
+            url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "input": {"prompt": prompt},
+                "parameters": {
+                    "result_format": "message",
+                    "max_tokens": max_tokens,
+                    "temperature": DEFAULT_TEMPERATURE
+                }
+            }
+
+            async with self.session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    _LOGGER.error("Qwen API error: %s", error_text)
+                    return None
+
+                result = await response.json()
+                # Qwen returns the result in 'output' > 'text' or 'output' > 'choices'
+                output = result.get("output", {})
+                if "text" in output:
+                    return output["text"]
+                elif "choices" in output and output["choices"]:
+                    return output["choices"][0].get("message", {}).get("content", "")
+                else:
+                    _LOGGER.error("Unexpected Qwen API response: %s", result)
+                    return None
+
+        except Exception as err:
+            _LOGGER.error("Error processing with Qwen: %s", err)
+            return None
